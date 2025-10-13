@@ -1,0 +1,17 @@
+[1.194s] Invoking command in '/home/egor/ros2_ws/src/build/esp32_commander': DEBUGINFOD_URLS=https://debuginfod.ubuntu.com PYTHONPATH=/home/egor/ros2_ws/src/build/esp32_commander/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/egor/ros2_ws/src/install/esp32_commander/lib/python3.12/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py develop --editable --build-directory /home/egor/ros2_ws/src/build/esp32_commander/build --no-deps symlink_data
+[1.683s] running develop
+[1.957s] running egg_info
+[1.985s] writing esp32_commander.egg-info/PKG-INFO
+[1.986s] writing dependency_links to esp32_commander.egg-info/dependency_links.txt
+[1.986s] writing entry points to esp32_commander.egg-info/entry_points.txt
+[1.986s] writing requirements to esp32_commander.egg-info/requires.txt
+[1.986s] writing top-level names to esp32_commander.egg-info/top_level.txt
+[2.045s] reading manifest file 'esp32_commander.egg-info/SOURCES.txt'
+[2.046s] writing manifest file 'esp32_commander.egg-info/SOURCES.txt'
+[2.075s] running build_ext
+[2.075s] Creating /home/egor/ros2_ws/src/install/esp32_commander/lib/python3.12/site-packages/esp32-commander.egg-link (link to .)
+[2.076s] Installing wifi_bridge script to /home/egor/ros2_ws/src/install/esp32_commander/lib/esp32_commander
+[2.076s] 
+[2.077s] Installed /home/egor/ros2_ws/src/build/esp32_commander
+[2.077s] running symlink_data
+[2.127s] Invoked command in '/home/egor/ros2_ws/src/build/esp32_commander' returned '0': DEBUGINFOD_URLS=https://debuginfod.ubuntu.com PYTHONPATH=/home/egor/ros2_ws/src/build/esp32_commander/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/egor/ros2_ws/src/install/esp32_commander/lib/python3.12/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py develop --editable --build-directory /home/egor/ros2_ws/src/build/esp32_commander/build --no-deps symlink_data

@@ -1,0 +1,24 @@
+[1.203s] Invoking command in '/home/egor/ros2_ws/src/build/esp32_commander': DEBUGINFOD_URLS=https://debuginfod.ubuntu.com PYTHONPATH=/home/egor/ros2_ws/src/build/esp32_commander/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/egor/ros2_ws/src/install/esp32_commander/lib/python3.12/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py develop --editable --build-directory /home/egor/ros2_ws/src/build/esp32_commander/build --no-deps symlink_data
+[1.697s] running develop
+[1.974s] running egg_info
+[1.974s] creating esp32_commander.egg-info
+[2.001s] writing esp32_commander.egg-info/PKG-INFO
+[2.002s] writing dependency_links to esp32_commander.egg-info/dependency_links.txt
+[2.002s] writing entry points to esp32_commander.egg-info/entry_points.txt
+[2.002s] writing requirements to esp32_commander.egg-info/requires.txt
+[2.002s] writing top-level names to esp32_commander.egg-info/top_level.txt
+[2.002s] writing manifest file 'esp32_commander.egg-info/SOURCES.txt'
+[2.056s] reading manifest file 'esp32_commander.egg-info/SOURCES.txt'
+[2.056s] writing manifest file 'esp32_commander.egg-info/SOURCES.txt'
+[2.086s] running build_ext
+[2.086s] Creating /home/egor/ros2_ws/src/install/esp32_commander/lib/python3.12/site-packages/esp32-commander.egg-link (link to .)
+[2.086s] Installing wifi_bridge script to /home/egor/ros2_ws/src/install/esp32_commander/lib/esp32_commander
+[2.087s] 
+[2.087s] Installed /home/egor/ros2_ws/src/build/esp32_commander
+[2.087s] running symlink_data
+[2.088s] creating /home/egor/ros2_ws/src/install/esp32_commander/share/ament_index
+[2.088s] creating /home/egor/ros2_ws/src/install/esp32_commander/share/ament_index/resource_index
+[2.088s] creating /home/egor/ros2_ws/src/install/esp32_commander/share/ament_index/resource_index/packages
+[2.088s] symbolically linking /home/egor/ros2_ws/src/build/esp32_commander/resource/esp32_commander -> /home/egor/ros2_ws/src/install/esp32_commander/share/ament_index/resource_index/packages
+[2.088s] symbolically linking /home/egor/ros2_ws/src/build/esp32_commander/package.xml -> /home/egor/ros2_ws/src/install/esp32_commander/share/esp32_commander
+[2.138s] Invoked command in '/home/egor/ros2_ws/src/build/esp32_commander' returned '0': DEBUGINFOD_URLS=https://debuginfod.ubuntu.com PYTHONPATH=/home/egor/ros2_ws/src/build/esp32_commander/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/egor/ros2_ws/src/install/esp32_commander/lib/python3.12/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py develop --editable --build-directory /home/egor/ros2_ws/src/build/esp32_commander/build --no-deps symlink_data
