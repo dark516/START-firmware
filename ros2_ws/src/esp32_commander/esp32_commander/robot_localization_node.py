@@ -1,251 +1,201 @@
 #!/usr/bin/env python3
+import math
 import rclpy
 from rclpy.node import Node
 from std_msgs.msg import Int32
-from geometry_msgs.msg import PoseWithCovarianceStamped, Pose2D
 from nav_msgs.msg import Odometry
-from geometry_msgs.msg import Point, Quaternion, Twist, Vector3
+from geometry_msgs.msg import Pose2D, TransformStamped
+from sensor_msgs.msg import Imu
 from tf2_ros import TransformBroadcaster
-from geometry_msgs.msg import TransformStamped
-import math
-from tf_transformations import quaternion_from_euler
+
+def normalize_angle(a):
+    return (a + math.pi) % (2.0 * math.pi) - math.pi
+
+def quat_from_yaw(yaw):
+    # yaw в радианах
+    qz = math.sin(yaw * 0.5)
+    qw = math.cos(yaw * 0.5)
+    class Q: pass
+    q = Q()
+    q.x = 0.0
+    q.y = 0.0
+    q.z = qz
+    q.w = qw
+    return q
 
 class RobotLocalizationNode(Node):
     def __init__(self):
         super().__init__('robot_localization')
-        
-        # Robot physical parameters (you may need to adjust these)
-        self.declare_parameter('wheel_separation', 0.3)  # distance between wheels in meters
-        self.declare_parameter('wheel_radius', 0.065)    # wheel radius in meters  
-        self.declare_parameter('ticks_per_revolution', 1440)  # encoder ticks per wheel revolution
-        
-        self.wheel_separation = self.get_parameter('wheel_separation').value
-        self.wheel_radius = self.get_parameter('wheel_radius').value
-        self.ticks_per_rev = self.get_parameter('ticks_per_revolution').value
-        
-        # Calculate meters per tick
-        wheel_circumference = 2 * math.pi * self.wheel_radius
+
+        # Параметры робота
+        self.declare_parameter('wheel_separation', 0.3)
+        self.declare_parameter('wheel_radius', 0.065)
+        self.declare_parameter('ticks_per_revolution', 1440)
+        self.declare_parameter('publish_rate', 20.0)  # Гц
+
+        self.wheel_separation = float(self.get_parameter('wheel_separation').value)
+        self.wheel_radius = float(self.get_parameter('wheel_radius').value)
+        self.ticks_per_rev = int(self.get_parameter('ticks_per_revolution').value)
+        self.publish_rate = float(self.get_parameter('publish_rate').value)
+
+        # Геометрия
+        wheel_circumference = 2.0 * math.pi * self.wheel_radius
         self.meters_per_tick = wheel_circumference / self.ticks_per_rev
-        
-        # Robot state
-        self.x = 0.0  # X position in meters
-        self.y = 0.0  # Y position in meters
-        self.theta = 0.0  # Orientation in radians
-        
-        # Track time for velocity calculations
+
+        # Состояние
+        self.x = 0.0
+        self.y = 0.0
+        self.theta = 0.0          # рад
+        self.linear_vel = 0.0     # м/с
+        self.angular_vel = 0.0    # рад/с
+
+        # Инкременты, накопленные с прошлого тика таймера
+        self._acc_left = 0
+        self._acc_right = 0
+
+        # IMU
+        self._have_imu = False
+        self._imu_yaw_rad = 0.0
+
+        # Время
         self.prev_time = self.get_clock().now()
-        
-        # Current velocities
-        self.linear_vel = 0.0
-        self.angular_vel = 0.0
-        
-        # Subscribers
-        self.sub_left = self.create_subscription(
-            Int32, '/encoder_left', self.left_encoder_callback, 10)
-        self.sub_right = self.create_subscription(
-            Int32, '/encoder_right', self.right_encoder_callback, 10)
-        self.sub_gyro = self.create_subscription(
-            Int32, '/gyro_yaw', self.gyro_callback, 10)
-        
-        # Publishers
+
+        # Подписки — ИМЕНА ТОПИКОВ ИЗ ТВОЕГО wifi_bridge.py
+        self.create_subscription(Int32, '/left_motor/encoder/delta', self.left_cb, 10)
+        self.create_subscription(Int32, '/right_motor/encoder/delta', self.right_cb, 10)
+        self.create_subscription(Imu, '/imu/bno055', self.imu_cb, 10)
+
+        # Паблишеры
         self.pub_odom = self.create_publisher(Odometry, '/odom', 10)
         self.pub_pose2d = self.create_publisher(Pose2D, '/robot_pose2d', 10)
-        
-        # Transform broadcaster
         self.tf_broadcaster = TransformBroadcaster(self)
-        
-        # Current encoder values
-        self.left_ticks = 0
-        self.right_ticks = 0
-        self.current_yaw_deg = 0
-        
-        # Timer for publishing odometry
-        self.timer = self.create_timer(0.1, self.publish_odometry)
-        
+
+        # Таймер интеграции/публикации
+        self.timer = self.create_timer(max(1e-3, 1.0 / self.publish_rate), self.integrate_and_publish)
+
         self.get_logger().info('🤖 Robot Localization Node started')
-        self.get_logger().info(f'📏 Wheel separation: {self.wheel_separation}m')
-        self.get_logger().info(f'⚙️ Wheel radius: {self.wheel_radius}m')
-        self.get_logger().info(f'🔢 Meters per tick: {self.meters_per_tick:.6f}m')
-    
-    def left_encoder_callback(self, msg):
-        self.left_ticks += msg.data  # msg.data is delta, so we accumulate
-        self.get_logger().debug(f'⬅️ Left encoder delta: {msg.data}, total: {self.left_ticks}')
-        self.calculate_odometry_from_deltas(msg.data, 0)
-    
-    def right_encoder_callback(self, msg):
-        self.right_ticks += msg.data  # msg.data is delta, so we accumulate
-        self.get_logger().debug(f'➡️ Right encoder delta: {msg.data}, total: {self.right_ticks}')
-        self.calculate_odometry_from_deltas(0, msg.data)
-    
-    def gyro_callback(self, msg):
-        self.current_yaw_deg = msg.data
-        # Convert degrees to radians for internal calculations
-        # Note: We use gyro data to correct for drift, but primarily rely on odometry
-        # You can implement sensor fusion here if needed
-    
-    def calculate_odometry_from_deltas(self, delta_left, delta_right):
-        # Skip if no movement
-        if delta_left == 0 and delta_right == 0:
+        self.get_logger().info(f'📏 wheel_separation={self.wheel_separation} m, wheel_radius={self.wheel_radius} m')
+        self.get_logger().info(f'🔢 ticks_per_rev={self.ticks_per_rev}, meters_per_tick={self.meters_per_tick:.9f}')
+
+    def left_cb(self, msg: Int32):
+        self._acc_left += int(msg.data)
+
+    def right_cb(self, msg: Int32):
+        self._acc_right += int(msg.data)
+
+    def imu_cb(self, msg: Imu):
+        # yaw из кватерниона
+        q = msg.orientation
+        # безопасный yaw (rad)
+        siny_cosp = 2.0 * (q.w * q.z + q.x * q.y)
+        cosy_cosp = 1.0 - 2.0 * (q.y * q.y + q.z * q.z)
+        self._imu_yaw_rad = math.atan2(siny_cosp, cosy_cosp)
+        self._have_imu = True
+
+    def integrate_and_publish(self):
+        now = self.get_clock().now()
+        dt = (now - self.prev_time).nanoseconds * 1e-9
+        if dt <= 0.0:
             return
-            
-        # Log the deltas we received
-        self.get_logger().info(
-            f'🔢 Raw Deltas - Left: {delta_left}, Right: {delta_right}'
-        )
-        
-        # Convert to distances
-        left_distance = delta_left * self.meters_per_tick
-        right_distance = delta_right * self.meters_per_tick
-        
-        # Log distances
-        self.get_logger().debug(
-            f'📏 Distances - Left: {left_distance:.6f}m, Right: {right_distance:.6f}m'
-        )
-        
-        # Calculate center distance (how far robot moved forward)
-        center_distance = (left_distance + right_distance) / 2.0
-        
-        # Use GYRO for orientation instead of calculating from encoders!
-        # Store old position for logging
-        old_x, old_y, old_theta = self.x, self.y, self.theta
-        
-        # Get current orientation from gyro (convert degrees to radians)
-        current_gyro_rad = math.radians(self.current_yaw_deg)
-        
-        # Use gyro heading directly
-        new_theta = current_gyro_rad
-        
-        # For position calculation, use the average orientation during movement
-        # This is between old orientation and new orientation
-        avg_theta = (self.theta + new_theta) / 2.0
-        
-        self.get_logger().info(
-            f'🎯 Movement - Center: {center_distance:.6f}m | Using Gyro: {self.current_yaw_deg}° '
-            f'| L: {left_distance:.6f}m, R: {right_distance:.6f}m'
-        )
-        
-        # Position changes in world coordinates using gyro orientation
-        dx = center_distance * math.cos(avg_theta)
-        dy = center_distance * math.sin(avg_theta)
-        
-        # Update position
-        self.x += dx
-        self.y += dy
-        self.theta = new_theta
-        
-        # Log the position changes
-        self.get_logger().info(
-            f'📍 Position Change: ΔX={dx:.6f}m, ΔY={dy:.6f}m '
-            f'| Old θ={math.degrees(old_theta):.1f}° → Gyro θ={self.current_yaw_deg}° (avg: {math.degrees(avg_theta):.1f}°)'
-        )
-        
-        # Normalize angle to [-pi, pi]
-        while self.theta > math.pi:
-            self.theta -= 2 * math.pi
-        while self.theta < -math.pi:
-            self.theta += 2 * math.pi
-        
-        # Calculate velocities
-        current_time = self.get_clock().now()
-        dt = (current_time - self.prev_time).nanoseconds / 1e9
-        
-        if dt > 0.01:  # Only update velocities if enough time has passed (10ms)
-            self.linear_vel = center_distance / dt
-            self.angular_vel = angular_change / dt
-            
-            # Limit maximum velocities to reasonable values
-            max_linear_vel = 2.0  # 2 m/s max
-            max_angular_vel = 3.14  # pi rad/s max
-            
-            if abs(self.linear_vel) > max_linear_vel:
-                self.get_logger().warn(f'Limiting linear velocity from {self.linear_vel:.3f} to {max_linear_vel}')
-                self.linear_vel = max_linear_vel if self.linear_vel > 0 else -max_linear_vel
-                
-            if abs(self.angular_vel) > max_angular_vel:
-                self.get_logger().warn(f'Limiting angular velocity from {self.angular_vel:.3f} to {max_angular_vel}')
-                self.angular_vel = max_angular_vel if self.angular_vel > 0 else -max_angular_vel
-        
-        # Update previous time for next calculation
-        self.prev_time = current_time
-    
-    def publish_odometry(self):
-        current_time = self.get_clock().now()
-        
-        # Create odometry message
+
+        # Забрать накопленные дельты и обнулить
+        dL_ticks = self._acc_left
+        dR_ticks = self._acc_right
+        self._acc_left = 0
+        self._acc_right = 0
+
+        # Интеграция одометрии
+        old_theta = self.theta
+        dL = dL_ticks * self.meters_per_tick
+        dR = dR_ticks * self.meters_per_tick
+        delta_s = 0.5 * (dL + dR)
+
+        if self._have_imu:
+            new_theta = self._imu_yaw_rad
+            dtheta = normalize_angle(new_theta - old_theta)
+            avg_theta = old_theta + 0.5 * dtheta
+            self.theta = new_theta
+        else:
+            # Резерв по энкодерам
+            dtheta = (dR - dL) / self.wheel_separation
+            avg_theta = old_theta + 0.5 * dtheta
+            self.theta = normalize_angle(old_theta + dtheta)
+
+        self.x += delta_s * math.cos(avg_theta)
+        self.y += delta_s * math.sin(avg_theta)
+
+        # Скорости
+        # Если энкодерных дельт нет — медленно «усаживаем» скорость к нулю
+        if dL_ticks == 0 and dR_ticks == 0:
+            self.linear_vel *= 0.8
+            self.angular_vel *= 0.8
+        else:
+            self.linear_vel = delta_s / dt
+            if self._have_imu:
+                self.angular_vel = normalize_angle(self.theta - old_theta) / dt
+            else:
+                self.angular_vel = dtheta / dt
+
+        # Паблиш /odom и TF
+        self.publish_odom(now)
+        self.publish_tf(now)
+
+        self.prev_time = now
+
+    def publish_odom(self, now):
         odom = Odometry()
-        odom.header.stamp = current_time.to_msg()
+        odom.header.stamp = now.to_msg()
         odom.header.frame_id = 'odom'
         odom.child_frame_id = 'base_link'
-        
-        # Set position
+
         odom.pose.pose.position.x = self.x
         odom.pose.pose.position.y = self.y
         odom.pose.pose.position.z = 0.0
-        
-        # Convert theta to quaternion
-        q = quaternion_from_euler(0, 0, self.theta)
-        odom.pose.pose.orientation.x = q[0]
-        odom.pose.pose.orientation.y = q[1]
-        odom.pose.pose.orientation.z = q[2]
-        odom.pose.pose.orientation.w = q[3]
-        
-        # Set velocities
+
+        q = quat_from_yaw(self.theta)
+        odom.pose.pose.orientation.x = q.x
+        odom.pose.pose.orientation.y = q.y
+        odom.pose.pose.orientation.z = q.z
+        odom.pose.pose.orientation.w = q.w
+
+        # Ковариации (подстрой под свой робот)
+        odom.pose.covariance[0] = 0.02
+        odom.pose.covariance[7] = 0.02
+        odom.pose.covariance[35] = 0.05
+
         odom.twist.twist.linear.x = self.linear_vel
         odom.twist.twist.linear.y = 0.0
         odom.twist.twist.angular.z = self.angular_vel
-        
-        # Set covariance (you may want to tune these values)
-        odom.pose.covariance[0] = 0.01   # x
-        odom.pose.covariance[7] = 0.01   # y
-        odom.pose.covariance[35] = 0.01  # theta
-        
-        odom.twist.covariance[0] = 0.01   # vx
-        odom.twist.covariance[35] = 0.01  # vtheta
-        
-        # Publish odometry
+
+        odom.twist.covariance[0] = 0.05
+        odom.twist.covariance[35] = 0.1
+
         self.pub_odom.publish(odom)
-        
-        # Publish simple 2D pose
+
         pose2d = Pose2D()
         pose2d.x = self.x
         pose2d.y = self.y
         pose2d.theta = self.theta
         self.pub_pose2d.publish(pose2d)
-        
-        # Publish transform
+
+    def publish_tf(self, now):
+        q = quat_from_yaw(self.theta)
         t = TransformStamped()
-        t.header.stamp = current_time.to_msg()
+        t.header.stamp = now.to_msg()
         t.header.frame_id = 'odom'
         t.child_frame_id = 'base_link'
-        
         t.transform.translation.x = self.x
         t.transform.translation.y = self.y
         t.transform.translation.z = 0.0
-        
-        t.transform.rotation.x = q[0]
-        t.transform.rotation.y = q[1]
-        t.transform.rotation.z = q[2]
-        t.transform.rotation.w = q[3]
-        
+        t.transform.rotation.x = q.x
+        t.transform.rotation.y = q.y
+        t.transform.rotation.z = q.z
+        t.transform.rotation.w = q.w
         self.tf_broadcaster.sendTransform(t)
-        
-        # Log current state
-        yaw_deg = math.degrees(self.theta)
-        gyro_diff = self.current_yaw_deg - yaw_deg
-        
-        # Log position only when there's significant movement or periodically
-        if (abs(self.linear_vel) > 0.05 or abs(self.angular_vel) > 0.1 or 
-            int(current_time.nanoseconds / 1e9) % 2 == 0):  # Every 2 seconds when stationary
-            self.get_logger().info(
-                f'🎯 Position: X={self.x:.4f}m, Y={self.y:.4f}m, θ={yaw_deg:.1f}° '
-                f'| Vel: {self.linear_vel:.3f}m/s, {math.degrees(self.angular_vel):.1f}°/s '
-                f'| Gyro: {self.current_yaw_deg}° (diff: {gyro_diff:.1f}°)'
-            )
 
 def main(args=None):
     rclpy.init(args=args)
     node = RobotLocalizationNode()
-    
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:

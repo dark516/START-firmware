@@ -1,0 +1,2 @@
+int32 left_delta
+int32 right_delta

@@ -7,8 +7,8 @@
 #include <Adafruit_BNO055.h>
 #include <utility/imumaths.h>
 
-const char* ssid = "s548-students";
-const char* password = "wcfg9295";
+const char* ssid = "BV9300 Pro";
+const char* password = "1aaaaaaa";
 
 Adafruit_BNO055 bno = Adafruit_BNO055(-1, 0x29, &Wire);
 
@@ -81,6 +81,7 @@ void setup() {
   
   delay(1000);
   Serial.println("🚀 ESP32S3 WiFi Bridge ready!");
+  Serial.println(WiFi.localIP());
   Serial.println("Waiting for ROS2 connection...");
 }
 
@@ -120,7 +121,7 @@ void loop() {
 
   // Receive data from Arduino via CAN and send to ROS2 via WiFi
   if (mcp2515.readMessage(&canMsg) == MCP2515::ERROR_OK) {
-    Serial.println("Received CAN data from Arduino");
+    // Serial.println("Received CAN data from Arduino");
     if (canMsg.can_id == 0x100 && canMsg.can_dlc == 8) {
       int32_t left_ticks, right_ticks;
       memcpy(&left_ticks, &canMsg.data[0], 4);
@@ -128,15 +129,19 @@ void loop() {
 
       // Get IMU data
       imu::Vector<3> euler = bno.getVector(Adafruit_BNO055::VECTOR_EULER);
-      int yaw = convertedX((int)euler.x());
+      imu::Vector<3> accel = bno.getVector(Adafruit_BNO055::VECTOR_ACCELEROMETER);
       
-      Serial.printf("Encoder data - L: %ld, R: %ld, Yaw: %d\n", left_ticks, right_ticks, yaw);
+      int yaw = convertedX((int)euler.x());
+      float x_accel = accel.y(); // X acceleration (forward/backward)
+      
+      Serial.printf("Sensor data - L: %ld, R: %ld, Yaw: %d, X_Accel: %.3f\n", 
+                    left_ticks, right_ticks, yaw, x_accel);
       
       // Send data to ROS2 via WiFi
       if (client && client.connected()) {
-        char buffer[64];
-        int len = snprintf(buffer, sizeof(buffer), "%ld %ld %d\n",
-                           left_ticks, right_ticks, yaw);
+        char buffer[80];
+        int len = snprintf(buffer, sizeof(buffer), "%ld %ld %d %.3f\n",
+                           left_ticks, right_ticks, yaw, x_accel);
         client.write((uint8_t*)buffer, len);
       }
     }
