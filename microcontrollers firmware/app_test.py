@@ -11,7 +11,7 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QH
                              QMessageBox, QComboBox, QLabel, QPushButton, QListWidget,
                              QDialog, QFormLayout, QSpinBox, QDialogButtonBox, QTabWidget,
                              QStatusBar, QStyle, QSizePolicy, QGraphicsView, QGraphicsScene,
-                             QGraphicsPixmapItem, QGraphicsTextItem, QLineEdit, QGraphicsItem)
+                             QGraphicsPixmapItem, QGraphicsTextItem, QLineEdit, QGraphicsItem, QButtonGroup)
 from PyQt6.QtCore import Qt, QProcess, QThread, pyqtSignal, QSize, QRect, QTimer
 from PyQt6.QtGui import (QTextCharFormat, QColor, QFont, QPalette, QIcon, QSyntaxHighlighter,
                          QTextDocument, QPainter, QPixmap, QPen, QBrush)
@@ -351,135 +351,88 @@ class BoardViewWindow(QMainWindow):
         layout.addWidget(self.board_view_widget)
 
 # --- ВИДЖЕТ СХЕМЫ ПЛАТЫ ---
+# --- ВИДЖЕТ СХЕМЫ ПЛАТЫ (ИСПРАВЛЕННАЯ ВЕРСИЯ) ---
 class BoardView(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.parent = parent # Ссылка на главное окно для доступа к редактору
-        # Словарь для хранения соответствия пинов и их имен
-        self.pin_definitions = {} # <-- Сначала инициализируем
-        # Словарь для хранения режимов пинов (теперь может быть None)
-        self.pin_modes = {} # <-- Добавляем инициализацию, теперь значения могут быть None
-        self.init_ui() # <-- Потом вызываем init_ui, который может использовать pin_definitions
+        self.parent = parent
+        # Убираем эти строки, теперь они в главном окне
+        # self.pin_definitions = {}
+        # self.pin_modes = {}
+        self.pin_mode_button_groups = {}
+        self.init_ui()
 
     def init_ui(self):
         layout = QVBoxLayout(self)
-        # QGraphicsView для отображения изображения и элементов
         self.graphics_view = QGraphicsView()
         self.graphics_scene = QGraphicsScene()
         self.graphics_view.setScene(self.graphics_scene)
-
-        # Кнопка для обновления #define в редакторе
         self.update_code_btn = QPushButton("Обновить #define в коде")
         self.update_code_btn.clicked.connect(self.update_code)
-
         layout.addWidget(self.graphics_view)
         layout.addWidget(self.update_code_btn)
-
-        # Загружаем изображение и добавляем пины (для Arduino Uno)
         self.load_board_image()
         self.add_pins()
 
     def load_board_image(self):
-        # Получаем цвета из настроек родительского окна
         if not self.parent or not hasattr(self.parent, 'config'):
-            bg_color = (45, 45, 45) # Значения по умолчанию
+            bg_color = (45, 45, 45)
             accent_color = (0, 153, 255)
         else:
             bg_color = self.parent.config["theme"]["bg_r"], self.parent.config["theme"]["bg_g"], self.parent.config["theme"]["bg_b"]
             accent_color = self.parent.config["theme"]["accent_r"], self.parent.config["theme"]["accent_g"], self.parent.config["theme"]["accent_b"]
-
         image_width = 550
         image_height = 550
         pixmap = QPixmap(image_width, image_height)
-        # Заливаем цветом акцента из темы
         pixmap.fill(QColor(*accent_color))
         self.board_image = QGraphicsPixmapItem(pixmap)
         self.graphics_scene.addItem(self.board_image)
-
-        # Устанавливаем размеры сцены под изображение
         self.graphics_scene.setSceneRect(0, 0, image_width, image_height)
-
-        # Устанавливаем политику размера для QGraphicsView
         self.graphics_view.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        # Устанавливаем фиксированный размер сцены, чтобы она не масштабировалась при изменении размера виджета
         self.graphics_view.setFixedSize(image_width, image_height)
-        # --- Добавьте эти строки ---
-        # Отключаем скроллбары, так как всё содержимое помещается
         self.graphics_view.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.graphics_view.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        # --------------------------------
 
-# --- ВСТАВЬТЕ ЭТИ ОБНОВЛЁННЫЕ ФУНКЦИИ В КЛАСС BoardView ---
-
-    # 1. Обновляем add_pins: применяем смещение к x-координатам
     def add_pins(self):
-        # Получаем цвета из настроек родительского окна
         if not self.parent or not hasattr(self.parent, 'config'):
-            fg_color = (220, 220, 220) # Значения по умолчанию
+            fg_color = (220, 220, 220)
             bg_color = (45, 45, 45)
         else:
             fg_color = self.parent.config["theme"]["fg_r"], self.parent.config["theme"]["fg_g"], self.parent.config["theme"]["fg_b"]
             bg_color = self.parent.config["theme"]["bg_r"], self.parent.config["theme"]["bg_g"], self.parent.config["theme"]["bg_b"]
-
-        # Определяем пины с пометкой ~ для ШИМ
-        digital_pins_with_pwm = ["D3", "D5", "D6", "D9", "D10", "D11"] # ШИМ пины на Uno
+        digital_pins_with_pwm = ["D3", "D5", "D6", "D9", "D10", "D11"]
         digital_pins = []
-        for i in range(14): # D0-D13
+        for i in range(14):
             pin_name = f"D{i}"
             if pin_name in digital_pins_with_pwm:
-                pin_name = f"~{pin_name}" # Добавляем ~ к ШИМ пинам
+                pin_name = f"~{pin_name}"
             digital_pins.append(pin_name)
-
-        analog_pins = [f"A{i}" for i in range(6)] # A0-A5
-
-        # Позиционирование
-        # Левая сторона (аналоговые): x = 50
-        analog_x = 25 + PIN_LAYOUT_OFFSET_X # <-- Применяем смещение
-        analog_start_y = 320 # Начинаем снизу
-        for i, pin_name in enumerate(reversed(analog_pins)): # Разворачиваем список, чтобы A0 был внизу
+        analog_pins = [f"A{i}" for i in range(6)]
+        analog_x = 25 + PIN_LAYOUT_OFFSET_X
+        analog_start_y = 320
+        for i, pin_name in enumerate(reversed(analog_pins)):
             y = analog_start_y + i * 35
             self.add_pin_item(pin_name, analog_x, y, fg_color, bg_color)
-
-        # Правая сторона (цифровые): x = 250 (было 350)
-        digital_x = 250 + PIN_LAYOUT_OFFSET_X # <-- Применяем смещение
-        digital_start_y = 490 # Начинаем сверху (было 240)
-        for i, pin_name in enumerate(digital_pins): # D0-D13, уже в нужном порядке
-            y = digital_start_y - i * 35 # Идем вниз (координаты увеличиваются вниз) (было - i * 20)
+        digital_x = 250 + PIN_LAYOUT_OFFSET_X
+        digital_start_y = 490
+        for i, pin_name in enumerate(digital_pins):
+            y = digital_start_y - i * 35
             self.add_pin_item(pin_name, digital_x, y, fg_color, bg_color)
 
-    # 2. Обновляем on_pin_mode_changed: учитываем отпускание кнопки
-    def on_pin_mode_changed(self, pin_name, mode, btn):
-        clean_pin_name = pin_name.lstrip("~")
-        # Проверяем, нажата ли кнопка
-        if btn.isChecked():
-            # Если нажата, устанавливаем режим
-            self.pin_modes[clean_pin_name] = mode
-            # print(f"Режим пина {clean_pin_name} изменен на {mode}") # Отладка
-        else:
-            # Если отжата, сбрасываем режим
-            self.pin_modes[clean_pin_name] = None
-            # print(f"Режим пина {clean_pin_name} сброшен") # Отладка
     def on_pin_name_changed(self, pin_name, new_text):
-        # Обновляем словарь при изменении текста в поле
         new_name = new_text.strip()
+        clean_pin_name = pin_name.lstrip("~")
         if new_name:
-            # Убираем ~ из имени пина при сохранении в словаре
-            clean_pin_name = pin_name.lstrip("~")
-            self.pin_definitions[clean_pin_name] = new_name
+            self.parent.pin_definitions[clean_pin_name] = new_name
         else:
-            # Если поле пустое, удаляем запись
-            # Убираем ~ из имени пина при удалении из словаря
-            clean_pin_name = pin_name.lstrip("~")
-            self.pin_definitions.pop(clean_pin_name, None)
-    # 3. Обновляем add_pin_item: убираем QButtonGroup, изменяем начальные состояния, применяем смещение к кнопкам, скрываем кнопки для аналоговых
+            self.parent.pin_definitions.pop(clean_pin_name, None)
+
     def add_pin_item(self, pin_name, x, y, fg_color, bg_color):
-        # Создаем текст с названием пина
         text_item = QGraphicsTextItem(pin_name)
         text_item.setDefaultTextColor(QColor(*fg_color))
         text_item.setPos(x, y)
         self.graphics_scene.addItem(text_item)
 
-        # Создаем QLineEdit для имени пина
         input_field = QLineEdit()
         input_field.setPlaceholderText("Имя пина")
         input_field.setMaximumWidth(80)
@@ -492,12 +445,9 @@ class BoardView(QWidget):
                 border-radius: 3px;
             }}
         """)
-
-        # Создаем кнопки для выбора режима: O, I, IP
-        # Кнопка O (OUTPUT)
-        btn_o = QPushButton("O")
-        btn_o.setFixedSize(25, 20)
-        btn_o.setStyleSheet(f"""
+        
+        # --- Создание кнопок и их стилей ---
+        btn_style = f"""
             QPushButton {{
                 background-color: rgba({bg_color[0]}, {bg_color[1]}, {bg_color[2]}, 150);
                 color: rgb({fg_color[0]}, {fg_color[1]}, {fg_color[2]});
@@ -506,87 +456,115 @@ class BoardView(QWidget):
                 border-radius: 3px;
             }}
             QPushButton:checked {{
-                background-color: rgb(0, 153, 255); /* Accent color */
-                color: rgb(255, 255, 255); /* White text */
+                background-color: rgb(0, 153, 255);
+                color: rgb(255, 255, 255);
             }}
-        """)
+        """
+        btn_o = QPushButton("O")
+        btn_o.setFixedSize(25, 20)
+        btn_o.setStyleSheet(btn_style)
         btn_o.setCheckable(True)
-        # Кнопка I (INPUT)
+        btn_o.mode = "OUTPUT" # Сохраняем режим в самом объекте кнопки
+
         btn_i = QPushButton("I")
         btn_i.setFixedSize(25, 20)
-        btn_i.setStyleSheet(btn_o.styleSheet()) # Используем тот же стиль
+        btn_i.setStyleSheet(btn_style)
         btn_i.setCheckable(True)
-        # Кнопка IP (INPUT_PULLUP)
+        btn_i.mode = "INPUT"
+
         btn_ip = QPushButton("IP")
         btn_ip.setFixedSize(35, 20)
-        btn_ip.setStyleSheet(btn_o.styleSheet()) # Используем тот же стиль
+        btn_ip.setStyleSheet(btn_style)
         btn_ip.setCheckable(True)
+        btn_ip.mode = "INPUT_PULLUP"
 
-        # --- УДАЛЕНО: QButtonGroup и setExclusive ---
+        # --- НОВАЯ ЛОГИКА С QButtonGroup ---
+        clean_pin_name = pin_name.lstrip("~")
+        
+        button_group = QButtonGroup(self)
+        button_group.setExclusive(True) # Гарантирует, что только одна кнопка может быть нажата
+        self.pin_mode_button_groups[clean_pin_name] = button_group
+        
+        button_group.addButton(btn_o)
+        button_group.addButton(btn_i)
+        button_group.addButton(btn_ip)
+        
+        # Подключаем сигнал от группы к нашему новому обработчику
+        button_group.buttonClicked.connect(lambda button, pn=clean_pin_name: self.on_pin_mode_group_clicked(pn, button))
+        # --- КОНЕЦ НОВОЙ ЛОГИКИ ---
 
-        # Связываем нажатие кнопки с установкой/сбросом режима
-        btn_o.clicked.connect(lambda checked, pn=pin_name, b=btn_o: self.on_pin_mode_changed(pn, "OUTPUT", b))
-        btn_i.clicked.connect(lambda checked, pn=pin_name, b=btn_i: self.on_pin_mode_changed(pn, "INPUT", b))
-        btn_ip.clicked.connect(lambda checked, pn=pin_name, b=btn_ip: self.on_pin_mode_changed(pn, "INPUT_PULLUP", b))
-
-        # Преобразуем QLineEdit и кнопки в QGraphicsProxyWidget, чтобы добавить в сцену
         proxy_input = self.graphics_scene.addWidget(input_field)
-        proxy_input.setPos(x + 50, y) # Смещаем правее от названия
+        proxy_input.setPos(x + 50, y)
 
         proxy_btn_o = self.graphics_scene.addWidget(btn_o)
         proxy_btn_i = self.graphics_scene.addWidget(btn_i)
         proxy_btn_ip = self.graphics_scene.addWidget(btn_ip)
 
-        # Устанавливаем позиции кнопок относительно поля ввода
-        # Допустим, кнопки идут перед полем ввода: x - 85 (25+25+35 = 85)
-        btn_start_x = x +120 + PIN_LAYOUT_OFFSET_X # <-- Применяем смещение
+        btn_start_x = x + 120 + PIN_LAYOUT_OFFSET_X
         proxy_btn_o.setPos(btn_start_x, y)
         proxy_btn_i.setPos(btn_start_x + 25, y)
         proxy_btn_ip.setPos(btn_start_x + 50, y)
 
-        # Связываем изменение текста с обновлением словаря
         input_field.textChanged.connect(lambda text, pn=pin_name: self.on_pin_name_changed(pn, text))
+        clean_pin_name = pin_name.lstrip("~")
+        
+        # Загружаем имя пина
+        if clean_pin_name in self.parent.pin_definitions:
+            input_field.setText(self.parent.pin_definitions[clean_pin_name])
+            
+        # Загружаем режим пина
+        if clean_pin_name in self.parent.pin_modes:
+            mode = self.parent.pin_modes[clean_pin_name]
+            if mode == "OUTPUT":
+                btn_o.setChecked(True)
+            elif mode == "INPUT":
+                btn_i.setChecked(True)
+            elif mode == "INPUT_PULLUP":
+                btn_ip.setChecked(True)
+        # -----------------------------------------
 
         # Сохраняем ссылки на элементы для дальнейшего доступа
+        setattr(self, f"input_{pin_name}", input_field)
         setattr(self, f"input_{pin_name}", input_field)
         setattr(self, f"btn_o_{pin_name}", btn_o)
         setattr(self, f"btn_i_{pin_name}", btn_i)
         setattr(self, f"btn_ip_{pin_name}", btn_ip)
 
-        # --- НОВАЯ ЛОГИКА ---
-        # Устанавливаем начальный режим как None (никакой не выбран)
+        # Начальное состояние
         btn_o.setChecked(False)
         btn_i.setChecked(False)
         btn_ip.setChecked(False)
-        self.pin_modes[pin_name.lstrip("~")] = None # Сохраняем режим как None для пина без ~
+        self.parent.pin_modes[clean_pin_name] = None
 
-        # Для аналоговых пинов: показываем только I, не делаем её нажатой по умолчанию, скрываем O и IP
-        if pin_name.startswith('A'): # Проверяем, начинается ли имя пина с 'A'
-            btn_o.setVisible(False)  # Скрываем кнопку O
-            btn_ip.setVisible(False) # Скрываем кнопку IP
-            btn_i.setVisible(True)   # Оставляем кнопку I видимой
-            # Убираем нажатие по умолчанию для аналоговых пинов
-            # btn_i.setChecked(True) # <-- УБРАНО
-            # self.pin_modes[pin_name.lstrip("~")] = "INPUT" # <-- УБРАНО, теперь будет None
-        # --------------------------------
+        if pin_name.startswith('A'):
+            btn_o.setVisible(False)
+            btn_ip.setVisible(False)
+            btn_i.setVisible(True)
 
-    # 4. Обновляем update_code: не добавляем pinMode для аналоговых, проверяем mode != None, удаляем старые блоки
-    # ЗАМЕНИТЕ ЭТУ ФУНКЦИЮ ЦЕЛИКОМ В КЛАССЕ BoardView
+    def on_pin_mode_group_clicked(self, pin_name, clicked_button):
+        new_mode = clicked_button.mode
+        old_mode = self.parent.pin_modes.get(pin_name)
+
+        if new_mode == old_mode:
+            self.parent.pin_modes[pin_name] = None
+            button_group = self.pin_mode_button_groups[pin_name]
+            button_group.setExclusive(False)
+            clicked_button.setChecked(False)
+            button_group.setExclusive(True)
+        else:
+            self.parent.pin_modes[pin_name] = new_mode
     def update_code(self):
         if not self.parent or not hasattr(self.parent, 'editor'):
             print("Ошибка: Нет доступа к редактору кода.")
             return
 
         current_code = self.parent.editor.toPlainText()
-
-        # --- УДАЛЕНИЕ СТАРЫХ БЛОКОВ (И define, И pinMode) ---
         lines = current_code.split('\n')
         new_lines = []
         in_block_to_remove = False
-        # Ищем оба типа блоков для удаления
         for line in lines:
             stripped_line = line.strip()
-            if stripped_line.startswith("// --- AUTO-GENERATED"): # Находит и DEFINES, и PINMODES
+            if stripped_line.startswith("// --- AUTO-GENERATED"):
                 in_block_to_remove = True
                 continue
             if in_block_to_remove:
@@ -595,32 +573,23 @@ class BoardView(QWidget):
                 continue
             new_lines.append(line)
 
-        # Убираем лишние пустые строки, которые могли остаться после удаления блоков
         clean_code = '\n'.join(new_lines).strip()
         lines = clean_code.split('\n')
 
-        # --- ГЕНЕРАЦИЯ НОВЫХ БЛОКОВ ---
-        # 1. Блок #define
         define_block_lines = []
-        # Собираем только те пины, которым дали имя
-        pins_with_names = {pin: name for pin, name in self.pin_definitions.items() if name.strip()}
+        pins_with_names = {pin: name for pin, name in self.parent.pin_definitions.items() if name.strip()}
         if pins_with_names:
             define_block_lines.append("// --- AUTO-GENERATED DEFINES ---")
             for pin, name in pins_with_names.items():
-                # Убираем тильду (~) из имени пина для #define
                 clean_pin = pin.lstrip("~")
                 define_block_lines.append(f"#define {name} {clean_pin}")
             define_block_lines.append("// --- END AUTO-GENERATED DEFINES ---")
 
-        # 2. Блок pinMode
         pinMode_block_lines = []
-     # ... внутри функции update_code ...
         pinMode_calls = []
-        for pin, mode in self.pin_modes.items():
-            # Теперь добавляем pinMode для ЛЮБОГО пина, если выбран режим
-            if mode is not None: # <-- ИСПРАВЛЕННАЯ СТРОКА
-                # Используем пользовательское имя, если оно есть, иначе номер пина
-                pin_name_to_use = self.pin_definitions.get(pin, pin)
+        for pin, mode in self.parent.pin_modes.items():
+            if mode is not None:
+                pin_name_to_use = self.parent.pin_definitions.get(pin, pin)
                 pinMode_calls.append(f"  pinMode({pin_name_to_use}, {mode});")
 
         if pinMode_calls:
@@ -628,69 +597,48 @@ class BoardView(QWidget):
             pinMode_block_lines.extend(pinMode_calls)
             pinMode_block_lines.append("  // --- END AUTO-GENERATED PINMODES ---")
 
-        # --- СБОРКА ИТОГОВОГО КОДА ---
         final_lines = []
-        # Сначала добавляем блок #define, если он есть
         if define_block_lines:
             final_lines.extend(define_block_lines)
-            final_lines.append("") # Пустая строка для разделения
+            final_lines.append("")
 
-        # Ищем setup() и вставляем блок pinMode
         in_setup = False
         setup_found_and_handled = False
         for line in lines:
-            # Если нашли void setup() и еще не обработали его
             if "void setup()" in line and not setup_found_and_handled:
                 in_setup = True
                 final_lines.append(line)
-                # Если в той же строке есть открывающая скобка '{'
                 if '{' in line:
-                    # Вставляем блок pinMode сразу после этой строки
                     if pinMode_block_lines:
                         final_lines.extend(pinMode_block_lines)
                     setup_found_and_handled = True
                 continue
-
-            # Если setup уже начался, и мы нашли '{' на новой строке
             if in_setup and not setup_found_and_handled and '{' in line:
                 final_lines.append(line)
-                # Вставляем блок pinMode после строки со скобкой
                 if pinMode_block_lines:
                     final_lines.extend(pinMode_block_lines)
                 setup_found_and_handled = True
                 continue
-
-            # Просто добавляем все остальные строки
             final_lines.append(line)
 
         final_code = '\n'.join(final_lines)
         self.parent.editor.setPlainText(final_code)
-
-
-
-    def generate_define_block(self):
-        # Формируем строку #define из словаря pin_definitions
-        define_lines = []
-        if self.pin_definitions:
-            define_lines = ["// --- AUTO-GENERATED DEFINES ---"]
-            for pin, name in self.pin_definitions.items():
-                define_lines.append(f"#define {name} {pin}")
-            define_lines.append("// --- END AUTO-GENERATED DEFINES ---")
-            define_lines.append("") # Пустая строка в конце блока
-        return '\n'.join(define_lines)
 
 # --- ГЛАВНОЕ ОКНО ПРИЛОЖЕНИЯ ---
 class PyDuinoIDE(QMainWindow):
     def __init__(self):
         super().__init__()
         self.config = load_config()
-        # Добавь это в __init__:
         self.autoscroll_enabled = True
         self.current_file_path = self.config.get("last_file_path", "")
         self.serial_thread = None
         self.serial_monitor_window = None
-        self.board_view_window = None # <-- Добавить ссылку на окно с платой
+        self.board_view_window = None
         self._uploading_after_compile = False
+
+        # Добавляем хранение состояния пинов
+        self.pin_definitions = self.config.get("pin_definitions", {})
+        self.pin_modes = self.config.get("pin_modes", {})
 
         self.setWindowTitle(APP_NAME)
         self.setGeometry(100, 100, 1200, 800)
@@ -820,16 +768,12 @@ class PyDuinoIDE(QMainWindow):
         self.status_bar.showMessage("Готово")
 
     def open_board_view(self):
-        if self.board_view_window is None or not self.board_view_window.isVisible():
-            # Создаем BoardView как отдельное окно
+        if self.board_view_window is None:
             self.board_view_window = BoardViewWindow(parent=self)
-            self.board_view_window.show()
-            self.board_view_window.raise_()
-            self.board_view_window.activateWindow()
-        else:
-            # Если окно уже открыто, просто поднимаем его
-            self.board_view_window.raise_()
-            self.board_view_window.activateWindow()
+        
+        self.board_view_window.show()
+        self.board_view_window.raise_()
+        self.board_view_window.activateWindow()
 
     def open_serial_monitor(self):
         port = self.port_combo.currentData()
@@ -1244,8 +1188,12 @@ void loop() {
             self.status_bar.showMessage("Тема обновлена.")
 
     def closeEvent(self, event):
-        # Закрываем окно монитора, если оно открыто
         self._close_serial_monitor()
+        
+        # Сохраняем состояние пинов в конфиг
+        self.config["pin_definitions"] = self.pin_definitions
+        self.config["pin_modes"] = self.pin_modes
+        
         self.config["last_board_fqbn"] = self.board_combo.currentData() or ""
         self.config["last_port"] = self.port_combo.currentData() or ""
         self.config["last_file_path"] = self.current_file_path
