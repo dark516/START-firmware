@@ -6,29 +6,35 @@ from launch.substitutions import LaunchConfiguration
 
 def generate_launch_description():
     # Аргументы
-    host_arg = DeclareLaunchArgument(
-        'host',
-        default_value='192.168.1.100',
+    esp32_ip_arg = DeclareLaunchArgument(
+        'esp32_ip',
+        default_value='192.168.125.222',
         description='ESP32 IP address'
     )
     cmd_port_arg = DeclareLaunchArgument(
         'cmd_port',
         default_value='3333',
-        description='ESP32 command port'
+        description='ESP32 UDP command port'
+    )
+    sensor_port_arg = DeclareLaunchArgument(
+        'sensor_port',
+        default_value='3335',
+        description='ESP32 UDP sensor data port'
     )
     lidar_port_arg = DeclareLaunchArgument(
         'lidar_port',
         default_value='3334',
-        description='ESP32 lidar port'
+        description='ESP32 UDP lidar port'
     )
 
     return LaunchDescription([
-        host_arg,
+        esp32_ip_arg,
         cmd_port_arg,
+        sensor_port_arg,
         lidar_port_arg,
 
         # ============================================
-        # 1. ESP32 WiFi Bridge (команды и одометрия)
+        # 1. ESP32 UDP Bridge (команды и данные датчиков)
         # ============================================
         Node(
             package='esp32_commander',
@@ -36,8 +42,9 @@ def generate_launch_description():
             name='esp32_wifi_bridge',
             output='screen',
             parameters=[{
-                'host': LaunchConfiguration('host'),
-                'port': LaunchConfiguration('cmd_port')
+                'esp32_ip': LaunchConfiguration('esp32_ip'),
+                'cmd_port': LaunchConfiguration('cmd_port'),
+                'sensor_port': LaunchConfiguration('sensor_port')
             }],
         ),
 
@@ -58,7 +65,7 @@ def generate_launch_description():
         ),
 
         # ============================================
-        # 3. RPLidar Bridge (лидар -> /scan)
+        # 3. RPLidar UDP Bridge (лидар -> /scan)
         # ============================================
         Node(
             package='esp32_commander',
@@ -66,8 +73,9 @@ def generate_launch_description():
             name='rplidar_bridge',
             output='screen',
             parameters=[{
-                'host': LaunchConfiguration('host'),
-                'port': LaunchConfiguration('lidar_port'),
+                'esp32_ip': LaunchConfiguration('esp32_ip'),
+                'lidar_port': LaunchConfiguration('lidar_port'),
+                'cmd_port': LaunchConfiguration('cmd_port'),
                 'frame_id': 'laser',
                 'range_min': 0.15,
                 'range_max': 12.0,

@@ -18,8 +18,9 @@ class RPLidarBridge(Node):
         super().__init__('rplidar_bridge')
         
         # Параметры подключения
-        self.declare_parameter('host', '10.115.122.247')
-        self.declare_parameter('port', 3334)
+        self.declare_parameter('esp32_ip', '192.168.125.222')
+        self.declare_parameter('lidar_port', 3334)           # Порт для LIDAR данных
+        self.declare_parameter('cmd_port', 3333)             # Порт для команд (общий с моторами)
         self.declare_parameter('frame_id', 'laser')
         self.declare_parameter('angle_min', 0.0)
         self.declare_parameter('angle_max', 6.28318)  # 2*pi
@@ -27,19 +28,27 @@ class RPLidarBridge(Node):
         self.declare_parameter('range_max', 12.0)
         self.declare_parameter('scan_frequency', 10.0)  # Гц
         
-        host = self.get_parameter('host').value
-        port = int(self.get_parameter('port').value)
+        self.esp32_ip = self.get_parameter('esp32_ip').value
+        self.lidar_port = int(self.get_parameter('lidar_port').value)
+        self.cmd_port = int(self.get_parameter('cmd_port').value)
         self.frame_id = self.get_parameter('frame_id').value
         self.range_min = float(self.get_parameter('range_min').value)
         self.range_max = float(self.get_parameter('range_max').value)
         
-        # TCP подключение к ESP32
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        # UDP сокеты
+        # Сокет для приема LIDAR данных
+        self.lidar_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        # Сокет для отправки команд LIDAR
+        self.cmd_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        
         try:
-            self.sock.connect((host, port))
-            self.get_logger().info(f'✅ Подключено к ESP32 LIDAR bridge ({host}:{port})')
+            self.lidar_sock.bind(('', self.lidar_port))
+            self.lidar_sock.settimeout(0.1)  # Неблокирующий режим
+            self.get_logger().info(f'✅ UDP LIDAR bridge создан')
+            self.get_logger().info(f'   LIDAR данные ← порт {self.lidar_port}')
+            self.get_logger().info(f'   LIDAR команды → {self.esp32_ip}:{self.cmd_port}')
         except Exception as e:
-            self.get_logger().error(f'❌ Не удалось подключиться: {e}')
+            self.get_logger().error(f'❌ Ошибка создания UDP сокетов: {e}')
             rclpy.shutdown()
             return
         
@@ -67,113 +76,116 @@ class RPLidarBridge(Node):
         try:
             time.sleep(0.5)
             
+            # ВАЖНО: Сначала регистрируемся у ESP32 отправив любую команду
+            # ESP32 с автоопределением IP начнет отправлять данные только после первой команды
+            self.get_logger().info('🔗 Регистрируемся у ESP32...')
+            self.send_command([0xFF])  # Простая команда для регистрации IP
+            time.sleep(0.5)
+            
             # STOP (если работал)
             self.send_command([0xA5, 0x25])
-            time.sleep(0.1)
+            time.sleep(0.2)
             
             # RESET
             self.send_command([0xA5, 0x40])
             time.sleep(2.0)
             
-            # GET_INFO (опционально, для проверки)
-            # self.send_command([0xA5, 0x50])
-            # time.sleep(0.5)
-            
-            # SCAN (стандартное сканирование)
+            # START SCAN (стандартное сканирование)
             self.send_command([0xA5, 0x20])
-            time.sleep(0.5)
+            time.sleep(1.0)
             
             self.get_logger().info('✅ Лидар запущен в режиме SCAN')
         except Exception as e:
             self.get_logger().error(f'Ошибка инициализации лидара: {e}')
     
     def send_command(self, cmd_bytes):
-        """Отправка команды лидару"""
+        """Отправка команды лидару через UDP"""
         try:
-            self.sock.send(bytes(cmd_bytes))
+            self.cmd_sock.sendto(bytes(cmd_bytes), (self.esp32_ip, self.cmd_port))
         except Exception as e:
-            self.get_logger().error(f'Ошибка отправки команды: {e}')
+            self.get_logger().error(f'Ошибка UDP отправки команды: {e}')
     
     def receive_loop(self):
-        """Главный цикл приёма данных"""
+        """Главный цикл приёма UDP данных"""
         buffer = b''
+        packet_count = 0
         
         while self.running and rclpy.ok():
             try:
-                # Получаем данные
-                data = self.sock.recv(4096)
-                if not data:
-                    self.get_logger().warn('Соединение закрыто')
-                    break
-                
-                buffer += data
-                
-                # Парсим буфер
-                buffer = self.parse_buffer(buffer)
+                # Получаем UDP пакет
+                data, addr = self.lidar_sock.recvfrom(4096)
+                if data:
+                    packet_count += 1
+                    if packet_count % 50 == 0:  # Логирование каждые 50 пакетов
+                        self.get_logger().info(f'📦 LIDAR пакет #{packet_count}: {len(data)} байт от {addr}')
+                    
+                    # Накапливаем данные в буфер
+                    buffer += data
+                    
+                    # Парсим буфер
+                    buffer = self.parse_buffer(buffer)
                 
             except socket.timeout:
+                # Нормально - нет данных
                 continue
             except Exception as e:
-                self.get_logger().error(f'Ошибка приёма: {e}')
-                time.sleep(0.1)
+                self.get_logger().debug(f'Ошибка UDP приёма: {e}')
+                time.sleep(0.01)
     
     def parse_buffer(self, buffer):
-        """Парсинг протокола RPLidar"""
+        """Парсинг RPLidar сырых данных (упрощенный)"""
+        points_parsed = 0
+        
         while len(buffer) >= 5:
-            # Ищем начало пакета измерения
-            # Формат: [START_FLAG1 | START_FLAG2 | (6bit_Quality | 2bit_flags) | angle_low | angle_high | distance_low | distance_high ]
-            # START_FLAG1 = 0xXX (зависит от S bit)
-            # START_FLAG2 = 0xXX
+            # Ищем начало RPLidar пакета
+            # RPLidar C1 стандартный формат: 5 байт на точку
             
-            # Упрощенный парсинг для RPLidar A1/C1 (стандартный режим)
-            # Байт 0: [S | !S | C | angle[14]]
-            # S = 1 если начало нового скана
-            # C = 1 если проверка failed (качество плохое)
-            
-            byte0 = buffer[0]
-            
-            # Проверка на валидность первого байта
-            start_bit = (byte0 >> 0) & 0x01
-            not_start_bit = (byte0 >> 1) & 0x01
-            
-            # Валидация: start_bit должен быть инверсией not_start_bit
-            if start_bit == not_start_bit:
-                # Невалидный пакет, сдвигаем буфер
+            try:
+                byte0 = buffer[0]
+                
+                # Проверка на S и !S биты (RPLidar протокол)
+                start_bit = (byte0 >> 0) & 0x01
+                not_start_bit = (byte0 >> 1) & 0x01
+                
+                # Проверка валидности
+                if start_bit == not_start_bit:
+                    buffer = buffer[1:]  # Сдвиг на 1 байт
+                    continue
+                
+                # Парсинг данных
+                quality = (byte0 >> 2) & 0x3F
+                new_scan_flag = start_bit
+                
+                # Угол (15 бит, 1/64 градуса)
+                angle_q6 = buffer[1] | (buffer[2] << 8)
+                angle_deg = (angle_q6 >> 1) / 64.0
+                
+                # Расстояние (16 бит, 1/4 мм)
+                distance_q2 = buffer[3] | (buffer[4] << 8)
+                distance_mm = distance_q2 / 4.0
+                distance_m = distance_mm / 1000.0
+                
+                # Публикуем скан при новом скане или по таймеру
+                current_time = time.time()
+                if new_scan_flag or (current_time - self.last_publish_time) > self.scan_period:
+                    self.publish_scan()
+                
+                # Добавляем точку в скан (фильтр минимального расстояния)
+                if 0.05 < distance_m < 15.0 and quality > 5:  # Фильтр шума и качества
+                    with self.scan_lock:
+                        angle_int = int(angle_deg) % 360
+                        self.scan_data[angle_int] = (distance_m, quality)
+                
+                points_parsed += 1
+                buffer = buffer[5:]  # Убираем 5 байт
+                
+            except (IndexError, ValueError, struct.error):
+                # Ошибка парсинга - сдвигаем на 1 байт
                 buffer = buffer[1:]
-                continue
-            
-            # Проверяем что достаточно данных для пакета
-            if len(buffer) < 5:
-                break
-            
-            # Парсим пакет (5 байт)
-            quality = (byte0 >> 2) & 0x3F  # 6 бит качества (для некоторых моделей)
-            check_bit = (byte0 >> 1) & 0x01
-            new_scan = start_bit
-            
-            # Угол (15 бит, 1/64 градуса)
-            angle_q6 = buffer[1] | ((buffer[2] << 8))
-            angle_deg = (angle_q6 >> 1) / 64.0
-            
-            # Расстояние (14 бит, 1/4 мм)
-            distance_q2 = buffer[3] | ((buffer[4] << 8))
-            distance_mm = (distance_q2 >> 2) / 4.0
-            distance_m = distance_mm / 1000.0
-            
-            # Обработка данных
-            if new_scan:
-                # Публикуем накопленный скан
-                self.publish_scan()
-            
-            # Добавляем точку в текущий скан
-            if distance_m > 0.01:  # Фильтр шума
-                with self.scan_lock:
-                    # Округляем угол до целого градуса
-                    angle_int = int(angle_deg) % 360
-                    self.scan_data[angle_int] = (distance_m, quality)
-            
-            # Убираем обработанный пакет
-            buffer = buffer[5:]
+        
+        # Логирование каждые 100 точек
+        if points_parsed > 0 and points_parsed % 100 == 0:
+            self.get_logger().debug(f'📊 Обработано {points_parsed} точек LIDAR')
         
         return buffer
     
@@ -222,10 +234,12 @@ class RPLidarBridge(Node):
             # Останавливаем лидар
             self.send_command([0xA5, 0x25])  # STOP
             time.sleep(0.1)
-            self.sock.close()
+            # Закрываем UDP сокеты
+            self.lidar_sock.close()
+            self.cmd_sock.close()
         except:
             pass
-        self.get_logger().info('🔴 LIDAR Bridge остановлен')
+        self.get_logger().info('🔴 LIDAR UDP Bridge остановлен')
         super().destroy_node()
 
 def main(args=None):

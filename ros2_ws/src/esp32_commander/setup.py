@@ -26,8 +26,10 @@ setup(
     entry_points={
         'console_scripts': [
             'wifi_bridge = esp32_commander.wifi_bridge:main',
-            'robot_localization_node = esp32_commander.robot_localization_node:main',
             'lidar_bridge = esp32_commander.lidar_bridge:main',
+            'lidar_only_bridge = esp32_commander.lidar_only_bridge:main',
+            'lidar_stream_bridge = esp32_commander.lidar_stream_bridge:main',
+            'lidar_tcp_bridge = esp32_commander.lidar_tcp_bridge:main',
         ],
     },
 )
