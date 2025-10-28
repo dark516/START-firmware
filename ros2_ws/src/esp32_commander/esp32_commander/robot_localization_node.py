@@ -28,9 +28,9 @@ class RobotLocalizationNode(Node):
         super().__init__('robot_localization')
 
         # Параметры робота
-        self.declare_parameter('wheel_separation', 0.3)
-        self.declare_parameter('wheel_radius', 0.065)
-        self.declare_parameter('ticks_per_revolution', 1440)
+        self.declare_parameter('wheel_separation', 0.0975)
+        self.declare_parameter('wheel_radius', 0.02)
+        self.declare_parameter('ticks_per_revolution', 1066)
         self.declare_parameter('publish_rate', 20.0)  # Гц
 
         self.wheel_separation = float(self.get_parameter('wheel_separation').value)
@@ -89,7 +89,7 @@ class RobotLocalizationNode(Node):
         # безопасный yaw (rad)
         siny_cosp = 2.0 * (q.w * q.z + q.x * q.y)
         cosy_cosp = 1.0 - 2.0 * (q.y * q.y + q.z * q.z)
-        self._imu_yaw_rad = math.atan2(siny_cosp, cosy_cosp)
+        self._imu_yaw_rad = -math.atan2(siny_cosp, cosy_cosp)
         self._have_imu = True
 
     def integrate_and_publish(self):

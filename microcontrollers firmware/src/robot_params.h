@@ -8,11 +8,11 @@ constexpr float DT = 0.01f; // Важно: Добавить эту строку!
 // Параметры колесной базы
 constexpr float WHEEL_DIAMETER = 0.04f;     // [m]
 constexpr int TICKS_PER_REV = 1066;           // [ticks/rev]
-constexpr float WHEEL_BASE = 0.1665f;         // [m]
+constexpr float WHEEL_BASE = 0.0975f;         // [m]
 
 // Ограничения
 constexpr float MAX_LIN_SPEED = 0.37f;        // [m/s]
-constexpr float MAX_ANG_SPEED = 4.44f;        // [rad/s] - Рассчитано: (2 * MAX_LIN_SPEED) / WHEEL_BASE
+constexpr float MAX_ANG_SPEED = 7.58974359f;        // [rad/s] - Рассчитано: (2 * MAX_LIN_SPEED) / WHEEL_BASE
 constexpr float MAX_LIN_ACCEL = 1.0f;         // [m/s²] - Оценка для робота такого размера
 constexpr float MAX_ANG_ACCEL = 4.44f;        // [rad/s²] - Оценка, основанная на MAX_ANG_SPEED
 

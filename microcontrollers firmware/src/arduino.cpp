@@ -28,7 +28,7 @@ Regulator left_regulator(left_motor, left_enc, left_pid);
 Regulator right_regulator(right_motor, right_enc, right_pid);
 
 // ===== Переменные скорости =====
-float v_lin = 0.05;   // линейная скорость
+float v_lin = 0.00;   // линейная скорость
 float v_ang = 0.0;    // угловая скорость
 
 // ===== Для проверки изменений =====
@@ -55,9 +55,6 @@ void setup() {
 
   Serial.println("🚗 Arduino готово!");
 
-  // стартовые значения моторов
-  right_motor.set_pwmdir(120);
-  left_motor.set_pwmdir(120);
 }
 
 void loop() {

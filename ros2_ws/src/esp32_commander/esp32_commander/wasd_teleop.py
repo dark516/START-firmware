@@ -12,8 +12,8 @@ from geometry_msgs.msg import Twist
 KEY_BINDINGS = {
     'w': (0.1, 0.0),   # forward
     's': (-0.1, 0.0),  # backward
-    'a': (0.0,  -0.1), # rotate right (negative z)
-    'd': (0.0,  0.1),  # rotate left (positive z)
+    'a': (0.0,  0.5), # rotate right (negative z)
+    'd': (0.0,  -0.5),  # rotate left (positive z)
     ' ': (0.0, 0.0),   # space = stop
 }
 
