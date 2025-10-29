@@ -12,7 +12,7 @@ public:
     {
         // Параметры
         this->declare_parameter("timeout_ms", 500);  // 500 мс по умолчанию
-        this->declare_parameter("input_topic", "cmd_vel_smoothed");
+        this->declare_parameter("input_topic", "cmd_vel");
         this->declare_parameter("output_topic", "cmd_vel");
         
         timeout_ms_ = this->get_parameter("timeout_ms").as_int();

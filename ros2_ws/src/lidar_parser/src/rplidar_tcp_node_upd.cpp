@@ -93,6 +93,8 @@ private:
             } else {
                 bool found_sync = false;
                 for (size_t i = 1; i < std::min(buffer.size() - packet_size + 1, static_cast<size_t>(20)); i++) {
+:g
+:qa
                     if (parseRPLidarPacketImproved(&buffer[i], measurement)) {
                         buffer.erase(buffer.begin(), buffer.begin() + i);
                         parsed_successfully = true;
